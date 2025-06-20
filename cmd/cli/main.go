@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/kirwinrMK/Zoom-Alert"
+	"github.com/MK-Morse-SMS/Zoom-Alert"
 )
 
 func main() {

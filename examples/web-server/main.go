@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/kirwinrMK/Zoom-Alert"
+	"github.com/MK-Morse-SMS/Zoom-Alert"
 
 	"github.com/gin-gonic/gin"
 )

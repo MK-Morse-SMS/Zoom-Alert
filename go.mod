@@ -1,4 +1,4 @@
-module github.com/kirwinrMK/Zoom-Alert
+module github.com/MK-Morse-SMS/Zoom-Alert
 
 go 1.24.4
 
