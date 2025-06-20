@@ -42,11 +42,34 @@ type ChatMessage struct {
 
 // ChatContent represents the content of a chat message
 type ChatContent struct {
-	Head ChatHead `json:"head"`
+	Head     *ChatHead     `json:"head,omitempty"`
+	Settings *ChatSettings `json:"settings,omitempty"`
+	Body     []ChatBody    `json:"body,omitempty"`
 }
 
-// ChatHead represents the head content of a chat message
+// ChatHead represents the head content of a chat message (for simple text messages)
 type ChatHead struct {
+	Text string `json:"text"`
+}
+
+// ChatSettings represents the settings for a chat message
+type ChatSettings struct {
+	// Add any settings fields as needed
+}
+
+// ChatBody represents a body element in a chat message
+type ChatBody struct {
+	Type      string        `json:"type"`
+	Layout    string        `json:"layout,omitempty"`
+	Sections  []ChatSection `json:"sections,omitempty"`
+	Text      string        `json:"text,omitempty"`
+	Level     string        `json:"level,omitempty"`
+	Closeable bool          `json:"closeable,omitempty"`
+}
+
+// ChatSection represents a section within a chat body
+type ChatSection struct {
+	Type string `json:"type"`
 	Text string `json:"text"`
 }
 
@@ -114,14 +137,13 @@ func (z *ZoomService) SendChatMessage(userJID, message string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get chatbot token: %w", err)
 	}
-
 	// Prepare chat message
 	chatMsg := ChatMessage{
 		RobotJID:  z.robotJID,
 		ToJID:     userJID,
 		AccountID: z.accountID,
 		Content: ChatContent{
-			Head: ChatHead{
+			Head: &ChatHead{
 				Text: message,
 			},
 		},
@@ -132,9 +154,13 @@ func (z *ZoomService) SendChatMessage(userJID, message string) error {
 		return fmt.Errorf("failed to marshal chat message: %w", err)
 	}
 
-	// Debug JSON payload
-	slog.Debug("Sending chat message with chatbot token", "toJID", userJID)
-
+	// Pretty print JSON for debugging
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, jsonData, "", "  "); err != nil {
+		return fmt.Errorf("failed to pretty print JSON: %w", err)
+	}
+	// slog.Info("Sending chat message with chatbot token", "payload", prettyJSON.String())
+	fmt.Println(prettyJSON.String())
 	// Send chat message using chatbot token
 	url := fmt.Sprintf("%s/im/chat/messages", z.baseURL)
 
@@ -175,6 +201,94 @@ func (z *ZoomService) SendChatMessage(userJID, message string) error {
 	return nil
 }
 
+// SendAlertMessage sends an alert message with rich content format
+func (z *ZoomService) SendAlertMessage(userJID, alertText, alertLevel string, closeable bool, sectionText string) error {
+	token, err := z.GetChatbotToken()
+	if err != nil {
+		return fmt.Errorf("failed to get chatbot token: %w", err)
+	}
+
+	// Prepare alert message with rich content
+	chatMsg := ChatMessage{
+		RobotJID:  z.robotJID,
+		ToJID:     userJID,
+		AccountID: z.accountID,
+		Content: ChatContent{
+			Settings: &ChatSettings{},
+			Body: []ChatBody{
+				{
+					Type:   "section",
+					Layout: "horizontal",
+					Sections: []ChatSection{
+						{
+							Type: "message",
+							Text: sectionText,
+						},
+					},
+				},
+				{
+					Type:      "alert",
+					Text:      alertText,
+					Level:     alertLevel,
+					Closeable: closeable,
+				},
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(chatMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal alert message: %w", err)
+	}
+
+	// Pretty print JSON for debugging
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, jsonData, "", "  "); err != nil {
+		return fmt.Errorf("failed to pretty print JSON: %w", err)
+	}
+	fmt.Println("Alert Message JSON:")
+	fmt.Println(prettyJSON.String())
+
+	// Send alert message using chatbot token
+	url := fmt.Sprintf("%s/im/chat/messages", z.baseURL)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read and log response body
+	var respBody bytes.Buffer
+	_, err = respBody.ReadFrom(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	slog.Debug("HTTP response details (alert message)",
+		"status", resp.Status,
+		"statusCode", resp.StatusCode,
+		"body", respBody.String())
+
+	// Restore response body for potential further processing
+	resp.Body = io.NopCloser(bytes.NewReader(respBody.Bytes()))
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("alert message request failed with status: %d, body: %s",
+			resp.StatusCode, respBody.String())
+	}
+
+	return nil
+}
+
 // GetAuthorizationURL generates the authorization URL for OAuth flow
 func (z *ZoomService) GetAuthorizationURL(state string) string {
 	return z.oauthService.GetAuthorizationURL(state)
@@ -197,6 +311,23 @@ func (z *ZoomService) SendAlertWithUserToken(email, message string) error {
 	// Then send the chat message using chatbot token and user's JID
 	if err := z.SendChatMessage(user.JID, message); err != nil {
 		return fmt.Errorf("failed to send chat message with user token: %w", err)
+	}
+
+	return nil
+}
+
+// SendAlertWithRichContent sends alert using user authorization token with rich content format
+func (z *ZoomService) SendAlertWithRichContent(email, alertText, alertLevel string, closeable bool, sectionText string) error {
+	// First, get the user by email using user token
+	user, err := z.GetUserByEmail(email)
+	if err != nil {
+		slog.Error("Failed to get user with user token", "email", email, "error", err)
+		return fmt.Errorf("failed to get user with user token: %w", err)
+	}
+
+	// Then send the alert message using chatbot token and user's JID
+	if err := z.SendAlertMessage(user.JID, alertText, alertLevel, closeable, sectionText); err != nil {
+		return fmt.Errorf("failed to send alert message: %w", err)
 	}
 
 	return nil
@@ -262,4 +393,107 @@ func (z *ZoomService) GetChatbotToken() (string, error) {
 	}
 
 	return tokenResponse.AccessToken, nil
+}
+
+// AlertLevel represents the severity level of an alert
+type AlertLevel string
+
+const (
+	AlertLevelInfo     AlertLevel = "INFO"
+	AlertLevelWarning  AlertLevel = "WARNING"
+	AlertLevelError    AlertLevel = "ERROR"
+	AlertLevelCritical AlertLevel = "CRITICAL"
+)
+
+// CreateAlertTemplate creates a ChatContent struct for alert messages
+func CreateAlertTemplate(sectionText, alertText string, level AlertLevel, closeable bool) ChatContent {
+	return ChatContent{
+		Settings: &ChatSettings{},
+		Body: []ChatBody{
+			{
+				Type:   "section",
+				Layout: "horizontal",
+				Sections: []ChatSection{
+					{
+						Type: "message",
+						Text: sectionText,
+					},
+				},
+			},
+			{
+				Type:      "alert",
+				Text:      alertText,
+				Level:     string(level),
+				Closeable: closeable,
+			},
+		},
+	}
+}
+
+// SendTemplatedAlert sends an alert using a predefined template
+func (z *ZoomService) SendTemplatedAlert(userJID string, content ChatContent) error {
+	token, err := z.GetChatbotToken()
+	if err != nil {
+		return fmt.Errorf("failed to get chatbot token: %w", err)
+	}
+
+	// Prepare chat message with templated content
+	chatMsg := ChatMessage{
+		RobotJID:  z.robotJID,
+		ToJID:     userJID,
+		AccountID: z.accountID,
+		Content:   content,
+	}
+
+	jsonData, err := json.Marshal(chatMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal templated alert: %w", err)
+	}
+
+	// Pretty print JSON for debugging
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, jsonData, "", "  "); err != nil {
+		return fmt.Errorf("failed to pretty print JSON: %w", err)
+	}
+	fmt.Println("Templated Alert JSON:")
+	fmt.Println(prettyJSON.String())
+
+	// Send alert message using chatbot token
+	url := fmt.Sprintf("%s/im/chat/messages", z.baseURL)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read and log response body
+	var respBody bytes.Buffer
+	_, err = respBody.ReadFrom(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	slog.Debug("HTTP response details (templated alert)",
+		"status", resp.Status,
+		"statusCode", resp.StatusCode,
+		"body", respBody.String())
+
+	// Restore response body for potential further processing
+	resp.Body = io.NopCloser(bytes.NewReader(respBody.Bytes()))
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("templated alert request failed with status: %d, body: %s",
+			resp.StatusCode, respBody.String())
+	}
+
+	return nil
 }

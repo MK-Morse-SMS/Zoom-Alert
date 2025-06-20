@@ -1,0 +1,26 @@
+{
+  "robot_jid": "your_robot_jid_here",
+  "to_jid": "user_jid_here",
+  "account_id": "your_account_id_here",
+  "content": {
+    "settings": {},
+    "body": [
+      {
+        "type": "section",
+        "layout": "horizontal",
+        "sections": [
+          {
+            "type": "message",
+            "text": "This is a section block with message"
+          }
+        ]
+      },
+      {
+        "type": "alert",
+        "text": "This is alert text",
+        "level": "ERROR",
+        "closeable": true
+      }
+    ]
+  }
+}

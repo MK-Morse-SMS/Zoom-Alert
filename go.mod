@@ -1,4 +1,4 @@
-module zoomalert
+module github.com/kirwinrMK/Zoom-Alert
 
 go 1.24.4
 

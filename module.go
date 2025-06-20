@@ -202,6 +202,8 @@ func (m *ZoomAlertModule) RegisterAlertRoutes(router *gin.Engine) {
 	v1 := router.Group("/api/v1")
 	{
 		v1.POST("/alert", alertHandler.SendAlert)
+		v1.POST("/alert/rich", alertHandler.SendRichAlert)
+		v1.POST("/alert/templated", alertHandler.SendTemplatedAlert)
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"zoomalert"
+	"github.com/kirwinrMK/Zoom-Alert"
 
 	"github.com/gin-gonic/gin"
 )

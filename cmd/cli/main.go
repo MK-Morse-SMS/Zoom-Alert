@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"zoomalert"
+	"github.com/kirwinrMK/Zoom-Alert"
 )
 
 func main() {

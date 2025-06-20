@@ -5,12 +5,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"zoomalert"
+	"github.com/kirwinrMK/Zoom-Alert"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,12 +42,19 @@ func main() {
 		cancel()
 	}()
 
-	// Start HTTP server
+	// Register OAuth routes
 	fmt.Println("Press Ctrl+C to stop")
 	router := gin.Default()
 	module.RegisterOAuthRoutes(router)
+	module.RegisterAlertRoutes(router)
+
+	// Create and start the gin HTTP server
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%s", config.Port),
+		Handler: router,
+	}
 	go func() {
-		if err := router.Run(":" + config.Port); err != nil {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start HTTP server: %v", err)
 		}
 	}()
@@ -84,18 +92,18 @@ func main() {
 		fmt.Println("✅ Alert sent successfully!")
 	}
 
-	// Example 2: Sending multiple alerts
-	fmt.Println("\n📨 Example 2: Multiple Alerts")
-	users := []string{"kirwinr@mkmorse.com", "whitmerl@mkmorse.com"}
-	for _, user := range users {
-		message := fmt.Sprintf("System notification: Server maintenance at %s", time.Now().Format("15:04"))
-		err := module.SendAlert(user, message)
-		if err != nil {
-			fmt.Printf("❌ Failed to send alert to %s: %v\n", user, err)
-		} else {
-			fmt.Printf("✅ Alert sent to %s\n", user)
-		}
-	}
+	// // Example 2: Sending multiple alerts
+	// fmt.Println("\n📨 Example 2: Multiple Alerts")
+	// users := []string{"kirwinr@mkmorse.com", "whitmerl@mkmorse.com"}
+	// for _, user := range users {
+	// 	message := fmt.Sprintf("System notification: Server maintenance at %s", time.Now().Format("15:04"))
+	// 	err := module.SendAlert(user, message)
+	// 	if err != nil {
+	// 		fmt.Printf("❌ Failed to send alert to %s: %v\n", user, err)
+	// 	} else {
+	// 		fmt.Printf("✅ Alert sent to %s\n", user)
+	// 	}
+	// }
 
 	// Example 3: Using the HTTP server
 	fmt.Println("\n🌐 Example 3: HTTP Server")
