@@ -4,7 +4,6 @@ package zoomalert
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -32,20 +31,22 @@ type Config struct {
 	ZoomRobotJID     string
 	Port             string
 	LogLevel         string
+	TokenFilePath    string
 }
 
 // DefaultConfig returns a configuration with default values
 func DefaultConfig() *Config {
 	return &Config{
-		Port:     "8080",
-		LogLevel: "info",
+		Port:          "8080",
+		LogLevel:      "info",
+		TokenFilePath: "./tokens.json",
 	}
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
 func LoadConfigFromEnv() *Config {
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
+		slog.Info("No .env file found, using environment variables")
 	}
 	config := DefaultConfig()
 
@@ -69,6 +70,9 @@ func LoadConfigFromEnv() *Config {
 	}
 	if val := os.Getenv("LOG_LEVEL"); val != "" {
 		config.LogLevel = val
+	}
+	if val := os.Getenv("TOKEN_FILE_PATH"); val != "" {
+		config.TokenFilePath = val
 	}
 
 	return config
@@ -114,7 +118,7 @@ func NewZoomAlertModule(config *Config) (*ZoomAlertModule, error) {
 	}))
 
 	// Initialize services
-	oauthService := NewOAuthService(config)
+	oauthService := NewOAuthService(config, config.TokenFilePath)
 	zoomService := NewZoomService(oauthService, config.ZoomRobotJID, config.ZoomAccountID)
 
 	return &ZoomAlertModule{

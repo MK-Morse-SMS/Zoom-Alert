@@ -348,6 +348,7 @@ ZOOM_REDIRECT_URL="http://localhost:8080/api/v1/oauth/callback"
 TARGET_EMAIL="default@company.com"
 PORT="8080"
 LOG_LEVEL="info"  # debug, info, warn, error
+TOKEN_FILE_PATH="./tokens.json"  # Path for token persistence
 ```
 
 ### Programmatic Setup
@@ -361,10 +362,53 @@ config := &zoomalert.Config{
     ZoomRedirectURI:  "http://localhost:8080/api/v1/oauth/callback",
     Port:             "8080",
     LogLevel:         "info",
+    TokenFilePath:    "./custom_tokens.json", // Custom token storage location
 }
 ```
 
-## Examples
+### Token Persistence
+
+ZoomAlert automatically persists OAuth tokens to survive application restarts:
+
+- **Default Location**: `./tokens.json` in the current directory
+- **Environment Variable**: Set `TOKEN_FILE_PATH` to customize the location
+- **Programmatic**: Set `TokenFilePath` in the config struct
+- **Docker Support**: Use volume mounts for persistent token storage
+
+#### Examples
+
+```go
+// Using default location
+config := zoomalert.LoadConfigFromEnv() // Uses ./tokens.json
+
+// Using custom location via config
+config := &zoomalert.Config{
+    // ... other config ...
+    TokenFilePath: "/app/data/zoom_tokens.json",
+}
+
+// Using environment variable
+os.Setenv("TOKEN_FILE_PATH", "/custom/path/tokens.json")
+config := zoomalert.LoadConfigFromEnv()
+```
+
+#### Docker Volume Example
+
+```dockerfile
+# In your Dockerfile
+VOLUME ["/app/data"]
+
+# In docker run
+docker run -v ./tokens:/app/data your-app
+
+# In docker-compose.yml
+volumes:
+  - ./token-data:/app/data
+```
+
+Set `TOKEN_FILE_PATH=/app/data/tokens.json` to persist tokens in the volume.
+
+## Code Examples
 
 The module includes several example applications in the `examples/` directory:
 
@@ -384,7 +428,16 @@ cd examples/alert
 go run main.go
 ```
 
-Demonstrates sending rich formatted alerts.
+Demonstrates sending rich formatted alerts with custom token file path.
+
+### Token Persistence Example
+
+```bash
+cd examples/token-persistence
+go run main.go
+```
+
+Shows different ways to configure token file storage locations.
 
 ### Integration Example
 

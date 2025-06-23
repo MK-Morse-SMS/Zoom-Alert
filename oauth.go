@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -21,12 +23,21 @@ type OAuthService struct {
 	// State management for OAuth flow
 	stateStore map[string]StateInfo
 	stateMutex sync.RWMutex
+	// Token persistence
+	tokenFilePath string
 }
 
 // StateInfo holds information about an OAuth state parameter
 type StateInfo struct {
 	CreatedAt time.Time
 	ExpiresAt time.Time
+}
+
+// TokenStore represents the structure for persisting tokens
+type TokenStore struct {
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }
 
 type tokenResponse struct {
@@ -37,12 +48,29 @@ type tokenResponse struct {
 	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
-// NewOAuthService creates a new OAuthService
-func NewOAuthService(cfg *Config) *OAuthService {
-	return &OAuthService{
-		config:     cfg,
-		stateStore: make(map[string]StateInfo),
+// NewOAuthService creates a new OAuthService with optional token file path
+func NewOAuthService(cfg *Config, tokenFilePath ...string) *OAuthService {
+	// Set default token file path if not provided
+	var filePath string
+	if len(tokenFilePath) > 0 && tokenFilePath[0] != "" {
+		filePath = tokenFilePath[0]
+	} else {
+		// Default to current directory + tokens.json
+		filePath = "./tokens.json"
 	}
+
+	service := &OAuthService{
+		config:        cfg,
+		stateStore:    make(map[string]StateInfo),
+		tokenFilePath: filePath,
+	}
+
+	// Try to load existing tokens on startup
+	if err := service.LoadTokens(); err != nil {
+		fmt.Printf("Warning: failed to load existing tokens: %v\n", err)
+	}
+
+	return service
 }
 
 // GetAuthorizationURL generates the authorization URL for the authorization code flow
@@ -117,6 +145,12 @@ func (o *OAuthService) ExchangeCodeForToken(code string) error {
 	o.userRefreshToken = tokenResp.RefreshToken
 	o.userExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn-60) * time.Second)
 
+	// Auto-save tokens to file
+	if err := o.SaveTokens(); err != nil {
+		// Log the error but don't fail the token exchange
+		fmt.Printf("Warning: failed to save tokens to file: %v\n", err)
+	}
+
 	return nil
 }
 
@@ -180,6 +214,12 @@ func (o *OAuthService) refreshUserToken() (string, error) {
 		o.userRefreshToken = tokenResp.RefreshToken
 	}
 	o.userExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn-60) * time.Second)
+
+	// Auto-save refreshed tokens
+	if err := o.SaveTokens(); err != nil {
+		// Log the error but don't fail the token refresh
+		fmt.Printf("Warning: failed to save refreshed tokens to file: %v\n", err)
+	}
 
 	return o.userAccessToken, nil
 }
@@ -258,4 +298,73 @@ func (o *OAuthService) IsUserAuthorized() bool {
 // GetConfig returns the OAuth configuration (for internal use by other services)
 func (o *OAuthService) GetConfig() *Config {
 	return o.config
+}
+
+// SaveTokens saves tokens to the configured file path
+func (o *OAuthService) SaveTokens() error {
+	if o.tokenFilePath == "" {
+		return fmt.Errorf("no token file path configured")
+	}
+
+	store := TokenStore{
+		AccessToken:  o.userAccessToken,
+		RefreshToken: o.userRefreshToken,
+		ExpiresAt:    o.userExpiresAt,
+	}
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(o.tokenFilePath), 0700); err != nil {
+		return fmt.Errorf("failed to create token directory: %w", err)
+	}
+
+	data, err := json.Marshal(store)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tokens: %w", err)
+	}
+
+	if err := os.WriteFile(o.tokenFilePath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write token file: %w", err)
+	}
+
+	return nil
+}
+
+// LoadTokens loads tokens from the configured file path
+func (o *OAuthService) LoadTokens() error {
+	if o.tokenFilePath == "" {
+		return fmt.Errorf("no token file path configured")
+	}
+
+	data, err := os.ReadFile(o.tokenFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Token file doesn't exist yet, this is normal for first run
+			return nil
+		}
+		return fmt.Errorf("failed to read token file: %w", err)
+	}
+
+	var store TokenStore
+	if err := json.Unmarshal(data, &store); err != nil {
+		return fmt.Errorf("failed to unmarshal tokens: %w", err)
+	}
+
+	// Only load tokens if they haven't expired
+	if time.Now().Before(store.ExpiresAt) {
+		o.userAccessToken = store.AccessToken
+		o.userRefreshToken = store.RefreshToken
+		o.userExpiresAt = store.ExpiresAt
+	}
+
+	return nil
+}
+
+// GetTokenFilePath returns the configured token file path
+func (o *OAuthService) GetTokenFilePath() string {
+	return o.tokenFilePath
+}
+
+// SetTokenFilePath updates the token file path
+func (o *OAuthService) SetTokenFilePath(path string) {
+	o.tokenFilePath = path
 }

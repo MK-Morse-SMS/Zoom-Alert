@@ -159,8 +159,7 @@ func (z *ZoomService) SendChatMessage(userJID, message string) error {
 	if err := json.Indent(&prettyJSON, jsonData, "", "  "); err != nil {
 		return fmt.Errorf("failed to pretty print JSON: %w", err)
 	}
-	// slog.Info("Sending chat message with chatbot token", "payload", prettyJSON.String())
-	fmt.Println(prettyJSON.String())
+
 	// Send chat message using chatbot token
 	url := fmt.Sprintf("%s/im/chat/messages", z.baseURL)
 

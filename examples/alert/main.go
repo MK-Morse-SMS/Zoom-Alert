@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/MK-Morse-SMS/Zoom-Alert"
+	zoomalert "github.com/MK-Morse-SMS/Zoom-Alert"
 )
 
 func main() {
@@ -19,36 +19,37 @@ func main() {
 
 	if clientID == "" || clientSecret == "" || redirectURL == "" || robotJID == "" || accountID == "" || targetEmail == "" {
 		log.Fatal("Missing required environment variables: ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, ZOOM_REDIRECT_URL, ZOOM_ROBOT_JID, ZOOM_ACCOUNT_ID, TARGET_EMAIL")
-	} // Create OAuth config
+	}
+
+	// Create configuration with custom token file path
 	config := &zoomalert.Config{
 		ZoomClientID:     clientID,
 		ZoomClientSecret: clientSecret,
 		ZoomRedirectURI:  redirectURL,
+		ZoomRobotJID:     robotJID,
+		ZoomAccountID:    accountID,
+		TokenFilePath:    "./zoom_tokens.json", // Custom token file location
 	}
 
-	// Create OAuth service
-	oauthService := zoomalert.NewOAuthService(config)
-
-	// Create Zoom service
-	zoomService := zoomalert.NewZoomService(oauthService, robotJID, accountID)
+	// Initialize the ZoomAlert module
+	module, err := zoomalert.NewZoomAlertModule(config)
+	if err != nil {
+		log.Fatalf("Failed to initialize ZoomAlert module: %v", err)
+	}
 
 	// Check if user is authorized
-	if !zoomService.IsUserAuthorized() {
+	if !module.IsUserAuthorized() {
 		fmt.Println("User not authorized. Please complete OAuth flow first.")
+		fmt.Printf("Visit: /api/v1/oauth/authorize to start the OAuth flow\n")
 		return
 	}
 
-	// Send alert with rich content
-	err := zoomService.SendAlertWithRichContent(
-		targetEmail,
-		"System Alert: High CPU Usage Detected",
-		"ERROR",
-		true,
-		"This is a section block with monitoring information",
-	)
+	// Send alert using the module
+	err = module.SendAlert(targetEmail, "System Alert: High CPU Usage Detected - This is a test alert!")
 	if err != nil {
 		log.Fatalf("Failed to send alert: %v", err)
 	}
 
 	fmt.Println("Alert sent successfully!")
+	fmt.Printf("Tokens are persisted in: %s\n", config.TokenFilePath)
 }
