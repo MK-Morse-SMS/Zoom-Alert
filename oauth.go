@@ -358,6 +358,12 @@ func (o *OAuthService) LoadTokens() error {
 		o.userAccessToken = store.AccessToken
 		o.userRefreshToken = store.RefreshToken
 		o.userExpiresAt = store.ExpiresAt
+	} else if store.RefreshToken != "" {
+		// Token expired but we have a refresh token, attempt to refresh
+		o.userRefreshToken = store.RefreshToken
+		if _, err := o.refreshUserToken(); err != nil {
+			o.logger.Warn("failed to refresh expired token during load", "error", err)
+		}
 	}
 
 	return nil
