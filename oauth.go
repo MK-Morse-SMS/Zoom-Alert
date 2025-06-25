@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,6 +26,8 @@ type OAuthService struct {
 	stateMutex sync.RWMutex
 	// Token persistence
 	tokenFilePath string
+
+	logger *slog.Logger
 }
 
 // StateInfo holds information about an OAuth state parameter
@@ -49,7 +52,7 @@ type tokenResponse struct {
 }
 
 // NewOAuthService creates a new OAuthService with optional token file path
-func NewOAuthService(cfg *Config, tokenFilePath ...string) *OAuthService {
+func NewOAuthService(cfg *Config, logger *slog.Logger, tokenFilePath ...string) *OAuthService {
 	// Set default token file path if not provided
 	var filePath string
 	if len(tokenFilePath) > 0 && tokenFilePath[0] != "" {
@@ -63,11 +66,12 @@ func NewOAuthService(cfg *Config, tokenFilePath ...string) *OAuthService {
 		config:        cfg,
 		stateStore:    make(map[string]StateInfo),
 		tokenFilePath: filePath,
+		logger:        logger,
 	}
 
 	// Try to load existing tokens on startup
 	if err := service.LoadTokens(); err != nil {
-		fmt.Printf("Warning: failed to load existing tokens: %v\n", err)
+		service.logger.Warn("failed to load existing tokens", "error", err)
 	}
 
 	return service
@@ -148,7 +152,7 @@ func (o *OAuthService) ExchangeCodeForToken(code string) error {
 	// Auto-save tokens to file
 	if err := o.SaveTokens(); err != nil {
 		// Log the error but don't fail the token exchange
-		fmt.Printf("Warning: failed to save tokens to file: %v\n", err)
+		o.logger.Warn("failed to save tokens to file", "error", err)
 	}
 
 	return nil
@@ -218,7 +222,7 @@ func (o *OAuthService) refreshUserToken() (string, error) {
 	// Auto-save refreshed tokens
 	if err := o.SaveTokens(); err != nil {
 		// Log the error but don't fail the token refresh
-		fmt.Printf("Warning: failed to save refreshed tokens to file: %v\n", err)
+		o.logger.Warn("failed to save refreshed tokens to file", "error", err)
 	}
 
 	return o.userAccessToken, nil

@@ -13,6 +13,15 @@ import (
 	"github.com/joho/godotenv"
 )
 
+type Option func(*ZoomAlertModule)
+
+// WithLogger sets a custom logger for the ZoomAlertModule
+func WithLogger(logger *slog.Logger) Option {
+	return func(m *ZoomAlertModule) {
+		m.logger = logger
+	}
+}
+
 // ZoomAlertModule represents the main module that can be integrated into other projects
 type ZoomAlertModule struct {
 	config       *Config
@@ -30,7 +39,6 @@ type Config struct {
 	ZoomRedirectURI  string
 	ZoomRobotJID     string
 	Port             string
-	LogLevel         string
 	TokenFilePath    string
 }
 
@@ -38,7 +46,6 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Port:          "8080",
-		LogLevel:      "info",
 		TokenFilePath: "./tokens.json",
 	}
 }
@@ -68,9 +75,6 @@ func LoadConfigFromEnv() *Config {
 	if val := os.Getenv("PORT"); val != "" {
 		config.Port = val
 	}
-	if val := os.Getenv("LOG_LEVEL"); val != "" {
-		config.LogLevel = val
-	}
 	if val := os.Getenv("TOKEN_FILE_PATH"); val != "" {
 		config.TokenFilePath = val
 	}
@@ -93,58 +97,43 @@ func (c *Config) Validate() error {
 }
 
 // NewZoomAlertModule creates a new ZoomAlertModule with the given configuration
-func NewZoomAlertModule(config *Config) (*ZoomAlertModule, error) {
+func NewZoomAlertModule(config *Config, options ...Option) (*ZoomAlertModule, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Setup logger
-	var logLevel slog.Level
-	switch config.LogLevel {
-	case "debug":
-		logLevel = slog.LevelDebug
-	case "info":
-		logLevel = slog.LevelInfo
-	case "warn":
-		logLevel = slog.LevelWarn
-	case "error":
-		logLevel = slog.LevelError
-	default:
-		logLevel = slog.LevelInfo
+	ms := &ZoomAlertModule{
+		config: config,
+		logger: slog.Default(),
+	}
+	// Apply options
+	for _, opt := range options {
+		opt(ms)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-
 	// Initialize services
-	oauthService := NewOAuthService(config, config.TokenFilePath)
-	zoomService := NewZoomService(oauthService, config.ZoomRobotJID, config.ZoomAccountID)
+	ms.oauthService = NewOAuthService(config, ms.logger, config.TokenFilePath)
+	ms.zoomService = NewZoomService(ms.oauthService, config.ZoomRobotJID, config.ZoomAccountID, ms.logger)
 
-	return &ZoomAlertModule{
-		config:       config,
-		oauthService: oauthService,
-		zoomService:  zoomService,
-		logger:       logger,
-	}, nil
+	return ms, nil
 }
 
-// SendAlert sends an alert message to a Zoom user by email
-func (m *ZoomAlertModule) SendAlert(email, message string) error {
+// SendMessage sends a message to a Zoom user by email
+func (m *ZoomAlertModule) SendMessage(email string, message ZoomContent) error {
+	if !m.zoomService.IsUserAuthorized() {
+		return fmt.Errorf("user is not authorized")
+	}
+
 	if email == "" {
 		return fmt.Errorf("email is required")
 	}
-	if message == "" {
-		return fmt.Errorf("message is required")
+
+	if err := m.zoomService.SendMessageByEmail(email, message); err != nil {
+		return fmt.Errorf("failed to send message: %w", err)
 	}
 
-	m.logger.Info("Sending alert", "email", email)
-
-	if m.zoomService.IsUserAuthorized() {
-		return m.zoomService.SendAlertWithUserToken(email, message)
-	}
-
-	return fmt.Errorf("user authorization required")
+	m.logger.Info("Message sent successfully", "email", email)
+	return nil
 }
 
 // IsUserAuthorized checks if the module has user authorization
@@ -196,18 +185,6 @@ func (m *ZoomAlertModule) RegisterOAuthRoutes(router *gin.Engine) {
 		v1.GET("/auth/status", alertHandler.GetAuthStatus)
 		v1.GET("/oauth/callback", alertHandler.OAuthCallback)
 		v1.GET("/oauth/authorize", alertHandler.OAuthAuthorize)
-	}
-}
-
-// RegisterAlertRoutes sets up the alert routes on an existing Gin router
-func (m *ZoomAlertModule) RegisterAlertRoutes(router *gin.Engine) {
-	alertHandler := NewAlertHandler(m.zoomService)
-
-	v1 := router.Group("/api/v1")
-	{
-		v1.POST("/alert", alertHandler.SendAlert)
-		v1.POST("/alert/rich", alertHandler.SendRichAlert)
-		v1.POST("/alert/templated", alertHandler.SendTemplatedAlert)
 	}
 }
 

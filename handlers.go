@@ -69,7 +69,7 @@ func (h *AlertHandler) SendAlert(c *gin.Context) {
 		return
 	}
 
-	err := h.zoomService.SendAlertWithUserToken(req.Email, req.Message)
+	err := h.zoomService.PostTextByEmail(req.Email, req.Message)
 	if err != nil {
 		slog.Error("Failed to send alert with authorization:", "error", err)
 		c.JSON(http.StatusInternalServerError, AlertResponse{
@@ -97,7 +97,7 @@ func (h *AlertHandler) HealthCheck(c *gin.Context) {
 // OAuthAuthorize initiates the OAuth authorization flow
 func (h *AlertHandler) OAuthAuthorize(c *gin.Context) {
 	// Generate a secure state parameter for CSRF protection
-	state, err := h.zoomService.GenerateOAuthState()
+	state, err := h.zoomService.generateOAuthState()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to generate OAuth state: " + err.Error(),
@@ -148,7 +148,7 @@ func (h *AlertHandler) OAuthCallback(c *gin.Context) {
 	}
 
 	// Validate state parameter for CSRF protection
-	if err := h.zoomService.ValidateOAuthState(state); err != nil {
+	if err := h.zoomService.validateOAuthState(state); err != nil {
 		errorMsg := "Invalid or expired state parameter: " + err.Error()
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": errorMsg,
@@ -157,7 +157,7 @@ func (h *AlertHandler) OAuthCallback(c *gin.Context) {
 	}
 
 	// Exchange code for token
-	if err := h.zoomService.ExchangeCodeForToken(code); err != nil {
+	if err := h.zoomService.exchangeCodeForToken(code); err != nil {
 		errorMsg := "Failed to exchange code for token: " + err.Error()
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": errorMsg,
@@ -184,191 +184,5 @@ func (h *AlertHandler) GetAuthStatus(c *gin.Context) {
 			}
 			return "Only server-to-server authorization available - limited functionality"
 		}(),
-	})
-}
-
-// RichAlertRequest represents the request payload for sending rich formatted alerts
-type RichAlertRequest struct {
-	Email       string `json:"email" binding:"required"`
-	AlertText   string `json:"alert_text" binding:"required"`
-	AlertLevel  string `json:"alert_level" binding:"required"`
-	SectionText string `json:"section_text" binding:"required"`
-	Closeable   bool   `json:"closeable"`
-}
-
-// TemplatedAlertRequest represents the request payload for sending templated alerts
-type TemplatedAlertRequest struct {
-	Email       string `json:"email" binding:"required"`
-	AlertText   string `json:"alert_text" binding:"required"`
-	AlertLevel  string `json:"alert_level" binding:"required"`
-	SectionText string `json:"section_text" binding:"required"`
-	Closeable   bool   `json:"closeable"`
-}
-
-// SendRichAlert sends a rich formatted alert with sections and alert blocks
-func (h *AlertHandler) SendRichAlert(c *gin.Context) {
-	if !h.zoomService.IsUserAuthorized() {
-		c.JSON(http.StatusUnauthorized, AlertResponse{
-			Success: false,
-			Message: "User is not authorized",
-		})
-		return
-	}
-
-	var req RichAlertRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, AlertResponse{
-			Success: false,
-			Message: "Invalid request format",
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	// Validate required fields
-	if req.Email == "" {
-		c.JSON(http.StatusBadRequest, AlertResponse{
-			Success: false,
-			Message: "Email is required",
-		})
-		return
-	}
-
-	if req.AlertText == "" {
-		c.JSON(http.StatusBadRequest, AlertResponse{
-			Success: false,
-			Message: "Alert text is required",
-		})
-		return
-	}
-
-	if req.SectionText == "" {
-		c.JSON(http.StatusBadRequest, AlertResponse{
-			Success: false,
-			Message: "Section text is required",
-		})
-		return
-	}
-
-	// Validate alert level
-	validLevels := map[string]bool{
-		"INFO":     true,
-		"WARNING":  true,
-		"ERROR":    true,
-		"CRITICAL": true,
-	}
-	if !validLevels[req.AlertLevel] {
-		c.JSON(http.StatusBadRequest, AlertResponse{
-			Success: false,
-			Message: "Invalid alert level. Must be one of: INFO, WARNING, ERROR, CRITICAL",
-		})
-		return
-	}
-
-	// Send rich alert
-	err := h.zoomService.SendAlertWithRichContent(
-		req.Email,
-		req.AlertText,
-		req.AlertLevel,
-		req.Closeable,
-		req.SectionText,
-	)
-	if err != nil {
-		slog.Error("Failed to send rich alert:", "error", err)
-		c.JSON(http.StatusInternalServerError, AlertResponse{
-			Success: false,
-			Message: "Failed to send rich alert",
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, AlertResponse{
-		Success: true,
-		Message: "Rich alert sent successfully",
-	})
-}
-
-// SendTemplatedAlert sends an alert using the template system
-func (h *AlertHandler) SendTemplatedAlert(c *gin.Context) {
-	if !h.zoomService.IsUserAuthorized() {
-		c.JSON(http.StatusUnauthorized, AlertResponse{
-			Success: false,
-			Message: "User is not authorized",
-		})
-		return
-	}
-
-	var req TemplatedAlertRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, AlertResponse{
-			Success: false,
-			Message: "Invalid request format",
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	// Validate required fields
-	if req.Email == "" {
-		c.JSON(http.StatusBadRequest, AlertResponse{
-			Success: false,
-			Message: "Email is required",
-		})
-		return
-	}
-
-	// Get user first
-	user, err := h.zoomService.GetUserByEmail(req.Email)
-	if err != nil {
-		slog.Error("Failed to get user:", "email", req.Email, "error", err)
-		c.JSON(http.StatusNotFound, AlertResponse{
-			Success: false,
-			Message: "User not found",
-			Error:   err.Error(),
-		})
-		return
-	}
-	// Create alert template
-	var alertLevel AlertLevel
-	switch req.AlertLevel {
-	case "INFO":
-		alertLevel = AlertLevelInfo
-	case "WARNING":
-		alertLevel = AlertLevelWarning
-	case "ERROR":
-		alertLevel = AlertLevelError
-	case "CRITICAL":
-		alertLevel = AlertLevelCritical
-	default:
-		c.JSON(http.StatusBadRequest, AlertResponse{
-			Success: false,
-			Message: "Invalid alert level. Must be one of: INFO, WARNING, ERROR, CRITICAL",
-		})
-		return
-	}
-
-	content := CreateAlertTemplate(
-		req.SectionText,
-		req.AlertText,
-		alertLevel,
-		req.Closeable,
-	)
-
-	// Send templated alert
-	err = h.zoomService.SendTemplatedAlert(user.JID, content)
-	if err != nil {
-		slog.Error("Failed to send templated alert:", "error", err)
-		c.JSON(http.StatusInternalServerError, AlertResponse{
-			Success: false,
-			Message: "Failed to send templated alert",
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, AlertResponse{
-		Success: true,
-		Message: "Templated alert sent successfully",
 	})
 }
