@@ -35,8 +35,9 @@ type Field struct {
 	Value string `json:"value"`
 }
 type Message struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	Markdown bool   `json:"is_markdown_support,omitempty"` // optional, default false
 }
 type FieldsBlock struct {
 	Type  string  `json:"type"`
